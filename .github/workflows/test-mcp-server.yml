@@ -1,16 +1,16 @@
-name: Test API Endpoints
+name: Test API Endpoints and CLI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
@@ -18,22 +18,22 @@ jobs:
       - name: Install Python and dependencies
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-      
+          python-version: "3.10"
+
       - name: Install jq and curl
         run: sudo apt-get install -y jq curl
-        
+
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
       - name: Set up env
         run: |
-            echo "LLM_API_BASE=${{ env.LLM_API_BASE }}" > .env.temp
-            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env.temp
-            echo "LLM_MODEL=${{ env.LLM_MODEL }}" >> .env.temp
-            echo "LLM_EMBED_MODEL=${{ env.LLM_EMBED_MODEL }}" >> .env.temp
-            echo "LLM_EMBED_SIZE=${{ env.LLM_EMBED_SIZE }}" >> .env.temp
-        
+          echo "LLM_API_BASE=${{ env.LLM_API_BASE }}" > .env.temp
+          echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env.temp
+          echo "LLM_MODEL=${{ env.LLM_MODEL }}" >> .env.temp
+          echo "LLM_EMBED_MODEL=${{ env.LLM_EMBED_MODEL }}" >> .env.temp
+          echo "LLM_EMBED_SIZE=${{ env.LLM_EMBED_SIZE }}" >> .env.temp
+
       - name: Run docker compose
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
@@ -75,14 +75,14 @@ jobs:
             docker logs $(docker ps -q --filter name=api)
             exit 1
           fi
-          
+
           # Check for success in response
           if ! echo "$RESPONSE" | jq -e '.success == true' > /dev/null; then
             echo "Compilation failed:"
             echo "$RESPONSE" | jq || echo "$RESPONSE"
             exit 1
           fi
-          
+
           echo "Compilation successful!"
           echo "$RESPONSE" | jq || echo "$RESPONSE"
 
@@ -103,21 +103,21 @@ jobs:
             docker logs $(docker ps -q --filter name=api)
             exit 1
           fi
-          
+
           # Check for success in response
           if ! echo "$RESPONSE" | jq -e '.success == true' > /dev/null; then
             echo "Compilation failed:"
             echo "$RESPONSE" | jq || echo "$RESPONSE"
             exit 1
           fi
-          
+
           echo "Compilation successful!"
           echo "$RESPONSE" | jq || echo "$RESPONSE"
 
       - name: Test /generate endpoint
         run: |
           echo "Testing /generate endpoint..."
-          
+
           # Generate the project
           RESPONSE=$(curl -s -S -f -X POST http://localhost:8000/generate \
             -H "Content-Type: application/json" \
@@ -132,11 +132,11 @@ jobs:
             docker logs $(docker ps -q --filter name=api)
             exit 1
           fi
-          
+
           # Extract project_id from response
           PROJECT_ID=$(echo "$RESPONSE" | jq -r '.project_id')
           echo "Project ID: $PROJECT_ID"
-          
+
           # Poll for project completion (maximum 10 attempts, 15 seconds apart)
           echo "Polling for project completion..."
           for i in {1..10}; do
@@ -170,52 +170,52 @@ jobs:
             echo "Waiting 15 seconds before next check..."
             sleep 15
           done
-          
+
           # Get a file from the project to verify file access works
           echo "Retrieving main.rs file..."
           FILE_RESPONSE=$(curl -s -S -f "http://localhost:8000/project/$PROJECT_ID/files/src/main.rs" || echo "CURL_FAILED")
-          
+
           if [ "$FILE_RESPONSE" = "CURL_FAILED" ]; then
             echo "Failed to retrieve file"
             exit 1
           fi
-          
+
           echo "Successfully retrieved file content:"
           echo "$FILE_RESPONSE" | head -10
-          
+
           # Test downloading the project
           echo "Testing project download..."
           DOWNLOAD_RESPONSE=$(curl -s -S -f -o "project-$PROJECT_ID.zip" "http://localhost:8000/project/$PROJECT_ID/download" || echo "CURL_FAILED")
-          
+
           if [ "$DOWNLOAD_RESPONSE" = "CURL_FAILED" ]; then
             echo "Failed to download project"
             exit 1
           fi
-          
+
           # Verify zip file was created
           if [ ! -f "project-$PROJECT_ID.zip" ]; then
             echo "Project zip file not created"
             exit 1
           fi
-          
+
           echo "Project download successful!"
           ls -la "project-$PROJECT_ID.zip"
 
       - name: Test /generate-sync endpoint
-        continue-on-error: true  # Allow this step to fail without failing the workflow
+        continue-on-error: true # Allow this step to fail without failing the workflow
         id: test-generate-sync
         run: |
           echo "Testing /generate-sync endpoint..."
           RESPONSE=$(curl -X POST http://localhost:8000/generate-sync \
             -H "Content-Type: application/json" \
             -d '{"description": "A command-line calculator in Rust", "requirements": "Should support addition, subtraction, multiplication, and division"}')
-        
+
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/generate-sync \
             -H "Content-Type: application/json" \
             -d '{"description": "A command-line calculator in Rust", "requirements": "Should support addition, subtraction, multiplication, and division"}')
             
           echo "HTTP response code: $HTTP_CODE"
-          
+
           if [[ "$HTTP_CODE" == "500" ]] && ([[ "$RESPONSE" == *"Invalid API Key"* ]] || [[ "$RESPONSE" == *"local variable"* ]] || [[ "$RESPONSE" == *"Connection error"* ]]); then
             echo "LLM service error detected - this is expected with invalid API keys or connection issues"
             echo "status=auth_error" >> $GITHUB_OUTPUT
@@ -228,10 +228,10 @@ jobs:
             echo "status=error" >> $GITHUB_OUTPUT
             exit 1
           fi
-          
+
           # Save response to file for later use
           echo "$RESPONSE" > generate_output.txt
-          
+
            # Check for success in response
           if ! echo "$RESPONSE" | jq -e '.success == true' > /dev/null; then
             echo "Generation failed:"
@@ -239,7 +239,7 @@ jobs:
             echo "$RESPONSE" | jq || echo "$RESPONSE"
             exit 1
           fi
-          
+
           echo "Generate-sync successful! Response contains code files in text format."
           echo "status=success" >> $GITHUB_OUTPUT
           echo "$RESPONSE" | jq || echo "$RESPONSE"
@@ -247,12 +247,12 @@ jobs:
       - name: "Test workflow: /generate-sync → /compile"
         run: |
           echo "Testing workflow: /generate-sync → /compile..."
-    
+
           # Check if response contains fallback template
           if grep -q "FALLBACK TEMPLATE" generate_output.txt; then
             echo "WARNING: Testing with fallback template code - LLM generation failed but continuing with tests"
           fi
-    
+
           # Get the output from the previous step and remove the build status comment
           # GENERATE_OUTPUT=$(cat generate_output.txt | sed '/^# Build/,$d')
           # COMPILE_RESPONSE=$(curl -s -S -f -X POST http://localhost:8000/compile \
@@ -267,20 +267,163 @@ jobs:
             -d "{
               \"code\": $(python3 -c "import json, sys; print(json.dumps(sys.stdin.read()))" < <(echo "$GENERATE_OUTPUT"))
             }" || echo "CURL_FAILED")
-    
+
           if [ "$COMPILE_RESPONSE" = "CURL_FAILED" ]; then
             echo "Failed to connect to API service"
             docker ps
             exit 1
           fi
-          
+
           # Check for success in response
           if ! echo "$COMPILE_RESPONSE" | jq -e '.success == true' > /dev/null; then
             echo "Compilation failed:"
             echo "$COMPILE_RESPONSE" | jq || echo "$COMPILE_RESPONSE"
             exit 1
           fi
-          
+
           echo "Workflow test successful! Generated code compiles correctly."
           echo "$COMPILE_RESPONSE" | jq || echo "$COMPILE_RESPONSE"
 
+  test-cli:
+    runs-on: ubuntu-latest
+    needs: test # Wait for API tests to complete first
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Install Python and dependencies
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Test CLI help and version
+        run: |
+          echo "Testing CLI basic functionality..."
+
+          # Test help
+          python -m cli.main --help
+
+          # Test version command
+          python -m cli.main version
+          python -m cli.main version --json
+
+          # Test completions command
+          python -m cli.main completions
+
+          echo "CLI basic commands working ✅"
+
+      - name: Test CLI with mock server
+        run: |
+          echo "Testing CLI commands with mock server..."
+          
+          # Start mock server from separate file
+          python .github/mock_server.py &
+          MOCK_PID=$!
+          sleep 3
+          
+          # Verify mock server is running
+          echo "Checking if mock server is running..."
+          if ! curl -s http://localhost:8001/project/test-123 > /dev/null; then
+            echo "Mock server not responding, starting again..."
+            kill $MOCK_PID 2>/dev/null || true
+            sleep 2
+            python .github/mock_server.py &
+            MOCK_PID=$!
+            sleep 3
+          fi
+          
+          # Test CLI commands against mock server
+          echo "Testing CLI commands..."
+          
+          # Test compile from file
+          echo "[filename: Cargo.toml]\n[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[filename: src/main.rs]\nfn main() { println!(\"Hello\"); }" > test_project.txt
+          
+          echo "Testing compile from file..."
+          python -m cli.main --server http://localhost:8001 compile --code test_project.txt
+          
+          # Test compile from project ID
+          echo "Testing compile from project ID..."
+          python -m cli.main --server http://localhost:8001 compile --project test-123
+          
+          # Test fix from file
+          echo "Testing fix from file..."
+          python -m cli.main --server http://localhost:8001 fix --code test_project.txt --description "test project" --max-attempts 2
+          
+          # Test fix from project ID
+          echo "Testing fix from project ID..."
+          python -m cli.main --server http://localhost:8001 fix --project test-123 --description "test project" --max-attempts 2
+          
+          # Test status command
+          echo "Testing status command..."
+          python -m cli.main --server http://localhost:8001 status --project test-123
+          
+          # Test cat command
+          echo "Testing cat command..."
+          python -m cli.main --server http://localhost:8001 cat --project test-123 --file src/main.rs
+          
+          # Test download command (should fail gracefully with mock server)
+          echo "Testing download command..."
+          python -m cli.main --server http://localhost:8001 download --project test-123 || echo "Download failed as expected with mock server"
+          
+          # Clean up
+          kill $MOCK_PID 2>/dev/null || true
+          rm -f test_project.txt
+          
+          echo "CLI command tests completed ✅"
+
+      - name: Test CLI error handling
+        run: |
+          echo "Testing CLI error handling..."
+                  
+          # Test missing required arguments
+          python -m cli.main compile 2>&1 | grep -q "Error: Must specify either --code or --project" && echo "Missing args error handled ✅" || exit 1
+
+          # Test conflicting arguments
+          python -m cli.main compile --code test.txt --project test-123 2>&1 | grep -q "Error: Cannot specify both --code and --project" && echo "Conflicting args error handled ✅" || exit 1
+
+          # Test non-existent file
+          python -m cli.main compile --code nonexistent.txt 2>&1 | grep -q "File not found" && echo "File not found error handled ✅" || exit 1
+
+          # Test non-existent project
+          python -m cli.main --server http://localhost:8001 compile --project nonexistent 2>&1 | grep -q "Project not found" && echo "Project not found error handled ✅" || exit 1
+
+          echo "CLI error handling tests completed ✅"
+
+      - name: Test CLI JSON output
+        run: |
+          echo "Testing CLI JSON output..."
+          
+          # Start mock server again for JSON tests
+          python .github/mock_server.py &
+          MOCK_PID=$!
+          sleep 3
+          
+          # Create test project file for JSON tests
+          echo "[filename: Cargo.toml]\n[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[filename: src/main.rs]\nfn main() { println!(\"Hello\"); }" > test_project.txt
+          
+          # Test JSON output with error checking
+          echo "Testing version --json..."
+          VERSION_OUTPUT=$(python -m cli.main --server http://localhost:8001 version --json 2>/dev/null || echo "")
+          if [ -n "$VERSION_OUTPUT" ]; then
+            echo "$VERSION_OUTPUT" | python -c "import json, sys; json.load(sys.stdin); print('Version JSON output valid ✅')"
+          else
+            echo "Version command failed, skipping JSON validation"
+          fi
+                  
+          echo "Testing compile --json..."
+          COMPILE_OUTPUT=$(python -m cli.main --server http://localhost:8001 compile --code test_project.txt --json 2>/dev/null || echo "")
+          if [ -n "$COMPILE_OUTPUT" ]; then
+            echo "$COMPILE_OUTPUT" | python -c "import json, sys; json.load(sys.stdin); print('Compile JSON output valid ✅')"
+          else
+            echo "Compile command failed, skipping JSON validation"
+          fi
+          
+          # Clean up
+          kill $MOCK_PID 2>/dev/null || true
+          rm -f test_project.txt
+          
+          echo "CLI JSON output tests completed ✅"

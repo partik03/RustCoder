@@ -298,6 +298,167 @@ fn main() {
 
 ---
 
+## 🖥️ Command Line Interface (CLI)
+
+The RustCoder CLI provides a command-line interface to interact with the API endpoints and manage projects.
+
+### 📦 Installation
+
+Install the CLI dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 🚀 Basic Usage
+
+Run the CLI with:
+
+```bash
+python -m cli.main --help
+```
+
+Set the server URL via environment variable or flag:
+
+```bash
+export RUSTCODER_SERVER=http://localhost:8000
+# or
+python -m cli.main --server http://localhost:8000
+```
+
+### 📋 Available Commands
+
+#### 🔍 Project Generation
+
+**Generate a project (async):**
+```bash
+python -m cli.main generate --description "A command-line calculator in Rust"
+```
+
+**Generate a project (sync):**
+```bash
+python -m cli.main generate --description "A web API with actix" --sync
+```
+
+**Generate with requirements file:**
+```bash
+python -m cli.main generate --description "CLI tool" --requirements requirements.txt
+```
+
+#### 📊 Project Management
+
+**Check project status:**
+```bash
+python -m cli.main status --project <project_id>
+```
+
+**Watch project until completion:**
+```bash
+python -m cli.main status --project <project_id> --watch
+```
+
+**Download project as zip:**
+```bash
+python -m cli.main download --project <project_id> --out my_project.zip
+```
+
+**View project file contents:**
+```bash
+python -m cli.main cat --project <project_id> --file src/main.rs
+```
+
+#### 🛠️ Code Compilation & Fixing
+
+**Compile Rust code from file:**
+```bash
+python -m cli.main compile --code ./artifacts/multifile.txt
+```
+
+**Compile Rust code from project ID:**
+```bash
+python -m cli.main compile --project <project_id>
+```
+
+**Auto-fix compilation errors from file:**
+```bash
+python -m cli.main fix --code ./artifacts/multifile.txt --description "hello world" --max-attempts 5
+```
+
+**Auto-fix compilation errors from project ID:**
+```bash
+python -m cli.main fix --project <project_id> --description "hello world" --max-attempts 5
+```
+
+
+
+#### ℹ️ Utility Commands
+
+**Show version info:**
+```bash
+python -m cli.main version
+```
+
+**Show version as JSON:**
+```bash
+python -m cli.main version --json
+```
+
+**Get shell completions:**
+```bash
+python -m cli.main completions
+```
+
+### 🔄 Complete Workflow Example
+
+1. **Generate a project:**
+   ```bash
+   python -m cli.main generate --description "A simple HTTP server" --sync
+   ```
+
+2. **Save the output to a file:**
+   ```bash
+   python -m cli.main generate --description "A simple HTTP server" --sync > project.txt
+   ```
+
+3. **Compile the project:**
+   ```bash
+   python -m cli.main compile --code project.txt
+   ```
+
+4. **If compilation fails, auto-fix:**
+   ```bash
+   python -m cli.main fix --code project.txt --description "A simple HTTP server" --max-attempts 3
+   ```
+
+### 📁 Input File Format
+
+The CLI expects multi-file input in the format:
+
+```
+[filename: Cargo.toml]
+[package]
+name = "my_project"
+version = "0.1.0"
+edition = "2021"
+
+[filename: src/main.rs]
+fn main() {
+    println!("Hello, world!");
+}
+```
+
+### 🌐 Environment Variables
+
+- `RUSTCODER_SERVER`: Base URL of the RustCoder API (default: `http://localhost:8000`)
+
+### 📝 Output Formats
+
+- **Human-readable**: Default output with colors and formatting
+- **JSON**: Use `--json` flag for machine-readable output
+- **File redirection**: Pipe output to files or other commands
+
+---
+
 ## 🔧 MCP (Model-Compiler-Processor) tools
 
 The MCP server is available via the HTTP SSE transport via the `http://localhost:3000/sse` URL. The MCP server can be accessed using the [cmcp command-line client](https://github.com/RussellLuo/cmcp). To install the `cmcp` tool,
