@@ -1,0 +1,8 @@
+{
+  "python_code": "def divide(a: int, b: int) -> float:\n    try:\n        return a / b\n    except ZeroDivisionError:\n        return 0.0\n\nresult = divide(10, 0)\nprint(result)",
+  "rust_code": "fn divide(a: i32, b: i32) -> Result<f64, String> {\n    if b == 0 {\n        Err(\"Division by zero\".to_string())\n    } else {\n        Ok(a as f64 / b as f64)\n    }\n}\n\nfn main() {\n    match divide(10, 0) {\n        Ok(result) => println!(\"Result: {}\", result),\n        Err(e) => println!(\"Error: {}\", e),\n    }\n}",
+  "explanation": "Python try/except becomes Rust Result<T, E> with pattern matching. Use Result type for recoverable errors.",
+  "patterns": ["error_handling", "try_except", "result", "match"],
+  "difficulty": "moderate"
+}
+

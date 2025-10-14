@@ -1,0 +1,8 @@
+{
+  "python_code": "numbers = [1, 2, 3, 4, 5]\nsquares = [x * x for x in numbers if x % 2 == 0]\nprint(squares)",
+  "rust_code": "fn main() {\n    let numbers = vec![1, 2, 3, 4, 5];\n    let squares: Vec<i32> = numbers\n        .iter()\n        .filter(|&&x| x % 2 == 0)\n        .map(|&x| x * x)\n        .collect();\n    println!(\"{:?}\", squares);\n}",
+  "explanation": "Python list comprehensions become Rust iterator chains with filter, map, and collect. This is more explicit but equally powerful.",
+  "patterns": ["list_comprehension", "iterator", "filter", "map", "collect"],
+  "difficulty": "easy"
+}
+

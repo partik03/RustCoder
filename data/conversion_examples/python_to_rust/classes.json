@@ -1,0 +1,8 @@
+{
+  "python_code": "class Calculator:\n    def __init__(self, value: int):\n        self.value = value\n    \n    def add(self, n: int) -> int:\n        return self.value + n",
+  "rust_code": "struct Calculator {\n    value: i32,\n}\n\nimpl Calculator {\n    fn new(value: i32) -> Self {\n        Calculator { value }\n    }\n    \n    fn add(&self, n: i32) -> i32 {\n        self.value + n\n    }\n}",
+  "explanation": "Python classes become Rust structs with impl blocks. __init__ becomes a new() associated function.",
+  "patterns": ["class", "init", "method", "self"],
+  "difficulty": "moderate"
+}
+

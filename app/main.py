@@ -27,7 +27,47 @@ class AppConfig:
         self.api_key = os.getenv("LLM_API_KEY", "")
         self.skip_vector_search = os.getenv("SKIP_VECTOR_SEARCH", "").lower() == "true"
         self.embed_size = int(os.getenv("LLM_EMBED_SIZE", "1536"))
-        # Add other config values
+        
+        # Model selection
+        self.available_models = {
+            "claude-sonnet": "claude-sonnet-4-5",
+            "claude-opus": "claude-opus-4",
+            "gemini": "gemini-pro",
+            "local": os.getenv("LLM_MODEL", "Qwen2.5-Coder-3B-Instruct")
+        }
+        self.current_model = os.getenv("PREFERRED_MODEL", "local")
+        self.api_base = os.getenv("LLM_API_BASE", "http://localhost:8080/v1")
+        
+        # Claude SDK Configuration
+        self.use_claude_sdk = os.getenv("USE_CLAUDE_SDK", "false").lower() == "true"
+        self.claude_sdk_model = os.getenv("CLAUDE_SDK_MODEL", "claude-sonnet-4")
+        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        
+        # Conversion method
+        self.conversion_method = os.getenv("CONVERSION_METHOD", "standard")  # standard or sdk
+    
+    def get_model_name(self) -> str:
+        """Get current model name."""
+        return self.available_models.get(self.current_model, self.current_model)
+    
+    def set_model(self, model_key: str) -> bool:
+        """Set active model."""
+        if model_key in self.available_models:
+            self.current_model = model_key
+            return True
+        return False
+    
+    def set_conversion_method(self, method: str) -> bool:
+        """Set conversion method (standard or sdk)."""
+        if method in ["standard", "sdk"]:
+            self.conversion_method = method
+            return True
+        return False
+    
+    def is_sdk_available(self) -> bool:
+        """Check if Claude SDK is available and configured."""
+        from app.claude_sdk_wrapper import is_claude_sdk_available
+        return is_claude_sdk_available()
 
 config = AppConfig()
 
@@ -52,13 +92,15 @@ try:
         vector_store.create_collection("error_examples")
         
         # After initializing vector store
-        from app.load_data import load_project_examples, load_error_examples
+        from app.load_data import load_project_examples, load_error_examples, load_conversion_examples
 
         # Check if collections are empty and load data if needed
         if vector_store.count("project_examples") == 0:
             load_project_examples()
         if vector_store.count("error_examples") == 0:
             load_error_examples()
+        if vector_store.count("conversion_examples") == 0:
+            load_conversion_examples()
 except Exception as e:
     print(f"Warning: Vector store initialization failed: {e}")
     print("Continuing without vector store functionality...")
@@ -310,6 +352,380 @@ Please provide the fixed code for all affected files.
             "build_output": attempts[-1]['output'] if attempts else "No compilation attempts were made",
             "build_success": False
         })
+
+
+@app.post("/analyze-python")
+async def analyze_python_project(request: dict):
+    """
+    Analyze a Python project for Rust conversion.
+    
+    Request body:
+        {
+            "project_path": "/path/to/python/project"
+        }
+    
+    Returns:
+        {
+            "analysis": {...},  # Detailed project analysis
+            "crate_recommendations": [...]  # Rust crate suggestions
+        }
+    """
+    from pathlib import Path
+    from app.analyzers.python_analyzer import PythonAnalyzer
+    from app.mappings.python_to_rust import get_rust_crate
+    
+    project_path = request.get("project_path")
+    if not project_path:
+        raise HTTPException(status_code=400, detail="project_path is required")
+    
+    path = Path(project_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Project path not found: {project_path}")
+    
+    # Analyze the project
+    analyzer = PythonAnalyzer()
+    analysis = analyzer.analyze_project(path)
+    
+    # Generate crate recommendations
+    dependencies = analysis.get("dependencies", [])
+    crate_recommendations = []
+    for dep in dependencies:
+        rust_crate = get_rust_crate(dep)
+        crate_recommendations.append(f"{dep} → {rust_crate}")
+    
+    return {
+        "analysis": analysis,
+        "crate_recommendations": crate_recommendations,
+        "status": "success"
+    }
+
+
+@app.post("/convert-python-to-rust")
+async def convert_python_to_rust_endpoint(request: dict):
+    """
+    Convert a Python project to Rust with DYNAMIC LLM-driven crate selection.
+    
+    NEW FLOW:
+    1. Analyze Python project
+    2. LLM suggests Rust crates for dependencies
+    3. User selects (or auto-select with interactive=false)
+    4. Generate Rust code with selected crates
+    5. Compile and fix
+    
+    Request body:
+        {
+            "project_path": "/path/to/python/project",
+            "description": "Optional project description",
+            "max_fix_attempts": 3,
+            "interactive": false  # If true, user selects crates interactively
+        }
+    
+    Returns:
+        {
+            "success": true,
+            "combined_text": "...",
+            "files": {...},
+            "analysis": {...},
+            "selected_crates": {...},  # NEW: Shows LLM-selected crates
+            "llm_analysis": "...",      # NEW: LLM's crate analysis
+            "python_files": [...],      # NEW: List of Python files converted
+            "build_output": "..."
+        }
+    """
+    import tempfile
+    import os
+    from pathlib import Path
+    from app.converters.python_converter import PythonConverter
+    from app.compiler import RustCompiler
+    from app.response_parser import ResponseParser
+    
+    project_path = request.get("project_path")
+    description = request.get("description", "")
+    max_fix_attempts = request.get("max_fix_attempts", 3)
+    interactive = request.get("interactive", False)  # NEW: Interactive mode
+    
+    if not project_path:
+        raise HTTPException(status_code=400, detail="project_path is required")
+    
+    path = Path(project_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        # Step 1: Analyze and get DYNAMIC crate suggestions from LLM
+        print("📊 Analyzing Python project with dynamic crate selection...")
+        converter = PythonConverter()
+        conversion_context = converter.analyze_and_prepare_with_crates(
+            path,
+            description,
+            interactive=interactive,
+            llm_client=llm_client
+        )
+        
+        # Step 2: Generate conversion prompt with DYNAMIC crates (no hardcoded mappings)
+        print("📝 Generating conversion prompt with LLM-selected crates...")
+        prompt = converter.generate_conversion_prompt_dynamic(
+            conversion_context,
+            description
+        )
+        
+        # Step 3: Optional vector search for similar conversions
+        similar_examples = ""
+        if not config.skip_vector_search:
+            try:
+                sample = conversion_context["sample_code"][:500]
+                query_embedding = llm_client.get_embeddings([sample])[0]
+                similar = vector_store.search("conversion_examples", query_embedding, limit=2)
+                if similar:
+                    similar_examples = "\n\n**Similar conversions for reference:**\n"
+                    for i, ex in enumerate(similar):
+                        similar_examples += f"Example {i+1}:\n{ex.get('example', '')}\n\n"
+            except Exception as e:
+                print(f"Vector search: {e}")
+        
+        # Step 4: Call LLM for conversion
+        system_message = """You are an expert Rust developer.
+
+Convert the Python code to high-quality, idiomatic Rust.
+
+CRITICAL:
+- Use ONLY the Rust crates specified in the prompt
+- Code MUST compile
+- Follow Rust best practices
+- Use [filename: ...] format for output
+
+Always output complete files in this format:
+
+[filename: Cargo.toml]
+<content>
+
+[filename: src/main.rs]
+<content>
+
+[filename: README.md]
+<content>"""
+        
+        print("🤖 Converting with LLM...")
+        rust_code_response = llm_client.generate_text(
+            prompt=prompt + similar_examples,
+            system_message=system_message,
+            max_tokens=8000,  # Increased for multi-file projects
+            temperature=0.2   # Lower temp for more precise code
+        )
+        
+        # Step 6: Parse LLM response into files
+        parser = ResponseParser()
+        files = parser.parse_response(rust_code_response)
+        
+        if not files:
+            raise HTTPException(status_code=500, detail="Failed to parse Rust code from LLM")
+        
+        # Step 6.5: Validate conversion result
+        validation = converter.validate_conversion_result(files)
+        if not validation["valid"]:
+            # Log validation errors but don't fail - try to compile anyway
+            print(f"Validation warnings: {validation['errors']}")
+        
+        # Step 7: Write files to temp directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            written_files = parser.write_files(files, temp_path)
+            
+            # Step 8: Try to compile
+            compiler = RustCompiler()
+            success, build_output = compiler.build_project(temp_path)
+            
+            # Step 9: If compilation fails, try to fix
+            attempt = 0
+            while not success and attempt < max_fix_attempts:
+                attempt += 1
+                
+                # Extract error context
+                error_context = compiler.extract_error_context(build_output)
+                
+                # Search for similar errors
+                fix_examples = ""
+                if not config.skip_vector_search:
+                    try:
+                        error_embedding = llm_client.get_embeddings([error_context["full_error"]])[0]
+                        similar_errors = vector_store.search("error_examples", error_embedding, limit=2)
+                        if similar_errors:
+                            for i, err in enumerate(similar_errors):
+                                fix_examples += f"\nError Example {i+1}:\n{err.get('error', '')}\nSolution: {err.get('solution', '')}\n"
+                    except Exception as e:
+                        print(f"Error vector search failed: {e}")
+                
+                # Generate fix prompt
+                fix_prompt = f"""The Rust code has compilation errors. Please fix them.
+
+Original Python code (sample):
+```python
+{conversion_context["sample_code"][:500]}...
+```
+
+Compilation error:
+{error_context["full_error"]}
+
+{fix_examples}
+
+Remember to use ONLY these crates:
+{chr(10).join(f"- {c['name']} v{c['version']}" for c in conversion_context['selected_crates'].values())}
+
+Please provide the COMPLETE fixed files in the same format:
+[filename: Cargo.toml]
+...
+[filename: src/main.rs]
+..."""
+                
+                # Call LLM to fix
+                fixed_response = llm_client.generate_text(
+                    prompt=fix_prompt,
+                    system_message="You are a Rust expert. Fix the compilation errors and return complete fixed files.",
+                    max_tokens=4000,
+                    temperature=0.3
+                )
+                
+                # Parse and rewrite files
+                fixed_files = parser.parse_response(fixed_response)
+                if fixed_files:
+                    parser.write_files(fixed_files, temp_path)
+                    success, build_output = compiler.build_project(temp_path)
+            
+            # Step 10: Create combined text format
+            combined_text = "\n\n".join(
+                f"[filename: {fname}]\n{content}" 
+                for fname, content in files.items()
+            )
+            
+            return {
+                "success": success,
+                "combined_text": combined_text,
+                "files": files,
+                "analysis": conversion_context["analysis"],
+                "selected_crates": conversion_context["selected_crates"],  # NEW
+                "llm_analysis": conversion_context.get("llm_analysis", ""),  # NEW
+                "python_files": list(conversion_context["python_files"].keys()),  # NEW
+                "build_output": build_output,
+                "fix_attempts": attempt
+            }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
+
+
+@app.post("/convert-python-file")
+async def convert_python_file_endpoint(request: dict):
+    """
+    Convert a single Python file to Rust (simpler than full project).
+    
+    Request body:
+        {
+            "python_code": "...",
+            "file_name": "main.py",
+            "description": "Optional description"
+        }
+    
+    Returns:
+        {
+            "rust_code": "...",
+            "success": true
+        }
+    """
+    from app.converters.python_converter import PythonConverter
+    
+    python_code = request.get("python_code")
+    file_name = request.get("file_name", "script.py")
+    description = request.get("description", "")
+    
+    if not python_code:
+        raise HTTPException(status_code=400, detail="python_code is required")
+    
+    try:
+        # Simple single-file analysis
+        import tempfile
+        from pathlib import Path
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write(python_code)
+            f.flush()
+            temp_file = Path(f.name)
+        
+        try:
+            from app.analyzers.python_analyzer import PythonAnalyzer
+            analyzer = PythonAnalyzer()
+            analysis = analyzer.analyze_file(temp_file)
+        finally:
+            temp_file.unlink()
+        
+        # Generate conversion prompt
+        converter = PythonConverter()
+        prompt = converter.generate_conversion_prompt(
+            python_code,
+            {"functions": analysis.get("functions", []), 
+             "classes": analysis.get("classes", []),
+             "imports": analysis.get("imports", [])},
+            description
+        )
+        
+        # Call LLM
+        system_message = "You are a Rust expert. Convert the Python file to a simple Rust program."
+        rust_code = llm_client.generate_text(
+            prompt=prompt,
+            system_message=system_message,
+            max_tokens=3000,
+            temperature=0.3
+        )
+        
+        return {
+            "rust_code": rust_code,
+            "success": True,
+            "file_name": file_name.replace(".py", ".rs")
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
+
+
+@app.get("/config/model")
+async def get_model_config():
+    """
+    Get current model configuration.
+    
+    Returns:
+        Current model settings and available models
+    """
+    return {
+        "model": config.current_model,
+        "model_name": config.get_model_name(),
+        "available_models": list(config.available_models.keys()),
+        "api_base": config.api_base
+    }
+
+
+@app.get("/config/model/{model_name}")
+async def set_model_config(model_name: str):
+    """
+    Set active LLM model.
+    
+    Args:
+        model_name: Model identifier (claude-sonnet, claude-opus, gemini, local)
+    
+    Returns:
+        Success status and updated configuration
+    """
+    if config.set_model(model_name):
+        return {
+            "success": True,
+            "message": f"Model set to {model_name}",
+            "model": config.current_model,
+            "model_name": config.get_model_name()
+        }
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model '{model_name}'. Available models: {list(config.available_models.keys())}"
+        )
+
         
 async def handle_project_generation(
     project_id: str, 

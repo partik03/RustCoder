@@ -1,0 +1,8 @@
+{
+  "python_code": "def add(a: int, b: int) -> int:\n    return a + b",
+  "rust_code": "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}",
+  "explanation": "Python functions map directly to Rust functions. Type hints become Rust types.",
+  "patterns": ["function", "parameters", "return_type"],
+  "difficulty": "easy"
+}
+

@@ -56,6 +56,79 @@ def load_error_examples():
     
     load_examples(vector_store, llm_client, ERROR_COLLECTION, ERROR_DATA_PATH, "error")
 
+def load_conversion_examples():
+    """Load Python → Rust conversion examples into vector database."""
+    from pathlib import Path
+    
+    logger.info("Loading conversion examples...")
+    
+    vector_store = QdrantStore()
+    llm_client = LlamaEdgeClient()
+    
+    # Create collection if it doesn't exist
+    try:
+        vector_store.create_collection("conversion_examples")
+    except Exception as e:
+        logger.info(f"Collection might already exist: {e}")
+    
+    # Check if already loaded
+    count = vector_store.count("conversion_examples")
+    if count > 0:
+        logger.info(f"Conversion examples already loaded ({count} items)")
+        return
+    
+    # Load from data/conversion_examples/python_to_rust/
+    examples_dir = Path("data/conversion_examples/python_to_rust")
+    
+    if not examples_dir.exists():
+        logger.warning(f"{examples_dir} not found, skipping conversion examples")
+        return
+    
+    json_files = list(examples_dir.glob("*.json"))
+    
+    for json_file in json_files:
+        try:
+            with open(json_file, 'r') as f:
+                example = json.load(f)
+            
+            # Use python_code as embedding query
+            query_text = example.get("python_code", "")
+            if not query_text:
+                continue
+            
+            # Generate embedding
+            embeddings = llm_client.get_embeddings([query_text])
+            if embeddings and len(embeddings) > 0:
+                # Format example for storage
+                example_text = f"""Python Code:
+{example.get('python_code', '')}
+
+Rust Code:
+{example.get('rust_code', '')}
+
+Explanation:
+{example.get('explanation', '')}
+
+Patterns: {', '.join(example.get('patterns', []))}
+"""
+                
+                # Add to vector store
+                vector_store.add_item(
+                    "conversion_examples",
+                    embeddings[0],
+                    {"example": example_text, **example}
+                )
+                
+                logger.info(f"  Loaded: {json_file.name}")
+        
+        except Exception as e:
+            logger.error(f"  Error loading {json_file.name}: {e}")
+    
+    final_count = vector_store.count("conversion_examples")
+    logger.info(f"Loaded {final_count} conversion examples")
+
+
 if __name__ == "__main__":
     load_project_examples()
     load_error_examples()
+    load_conversion_examples()

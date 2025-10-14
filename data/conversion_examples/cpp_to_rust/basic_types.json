@@ -1,0 +1,8 @@
+{
+  "cpp_code": "int add(int a, int b) {\n    return a + b;\n}\n\nstd::string greet(const std::string& name) {\n    return \"Hello, \" + name;\n}",
+  "rust_code": "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\nfn greet(name: &str) -> String {\n    format!(\"Hello, {}\", name)\n}",
+  "explanation": "C++ int maps to Rust i32. std::string maps to String. const std::string& maps to &str.",
+  "patterns": ["function", "types", "strings"],
+  "difficulty": "easy"
+}
+

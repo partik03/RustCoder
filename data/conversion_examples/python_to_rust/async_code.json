@@ -1,0 +1,8 @@
+{
+  "python_code": "import asyncio\n\nasync def fetch_data(url: str) -> str:\n    await asyncio.sleep(1)\n    return f\"Data from {url}\"",
+  "rust_code": "use tokio::time::{sleep, Duration};\n\nasync fn fetch_data(url: &str) -> String {\n    sleep(Duration::from_secs(1)).await;\n    format!(\"Data from {}\", url)\n}",
+  "explanation": "Python asyncio maps to Rust async/await with tokio runtime. async def becomes async fn.",
+  "patterns": ["async", "await", "asyncio"],
+  "difficulty": "moderate"
+}
+
